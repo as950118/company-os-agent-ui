@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Company OS — Control Panel</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent-strong: #0ea5e9;
+    --green: #34d399;
+    --green-bg: rgba(52, 211, 153, 0.1);
+    --amber: #fbbf24;
+    --amber-bg: rgba(251, 191, 36, 0.1);
+    --red: #f87171;
+    --red-bg: rgba(248, 113, 113, 0.1);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body { padding: 24px; }
+  main { max-width: 760px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  .badge {
+    font-size: 11px; color: var(--text-dim); background: var(--panel);
+    border: 1px solid var(--panel-border); border-radius: 999px; padding: 3px 10px;
+  }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab {
+    flex: 1; text-align: center; padding: 10px; cursor: pointer; user-select: none;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px;
+    color: var(--text-dim); font-size: 13px; font-weight: 600;
+  }
+  .tab.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px; padding: 18px; }
+  .panel + .panel { margin-top: 16px; }
+  .hidden { display: none !important; }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin: 12px 0 4px; }
+  label:first-child { margin-top: 0; }
+  input[type="text"] {
+    width: 100%; background: var(--bg); border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 8px 10px; color: var(--text); font-size: 13px;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  input[type="text"]::placeholder { color: #475569; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin: 14px 0 4px; }
+  .checkbox-row label { margin: 0; color: var(--text); font-size: 13px; }
+  button {
+    margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: var(--accent-strong); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: var(--accent); }
+  .result { margin-top: 16px; border-radius: 8px; padding: 14px; font-size: 12.5px; line-height: 1.6; }
+  .result.ok { background: var(--green-bg); border: 1px solid var(--green); color: var(--green); }
+  .result.err { background: var(--red-bg); border: 1px solid var(--red); color: var(--red); }
+  .result .warn { color: var(--amber); background: var(--amber-bg); border-radius: 6px; padding: 8px; margin-top: 8px; }
+  .result code, .result pre { color: var(--text); }
+  .result pre { white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; font-size: 12px; }
+  footer { margin-top: 20px; font-size: 11px; color: var(--text-dim); text-align: center; }
+  footer code { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🏢 Company OS — Control Panel</h1>
+    <span class="badge" id="version-badge">v…</span>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="init">Init</div>
+    <div class="tab" data-tab="upgrade">Upgrade</div>
+  </div>
+
+  <section class="panel" id="panel-init">
+    <form id="form-init">
+      <label for="init-name">Company name *</label>
+      <input type="text" id="init-name" placeholder="Acme Agent Co" required />
+
+      <label for="init-product">Product name *</label>
+      <input type="text" id="init-product" placeholder="Acme Task Hub" required />
+
+      <label for="init-out">Output directory (--out)</label>
+      <input type="text" id="init-out" placeholder="" />
+
+      <div class="row">
+        <div>
+          <label for="init-slug">Slug (--slug)</label>
+          <input type="text" id="init-slug" placeholder="derived from product" />
+        </div>
+        <div>
+          <label for="init-langsmith">LangSmith project</label>
+          <input type="text" id="init-langsmith" placeholder="same as slug" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="init-provider">LLM provider</label>
+          <input type="text" id="init-provider" value="openrouter" />
+        </div>
+        <div>
+          <label for="init-model">Model</label>
+          <input type="text" id="init-model" value="openrouter/free" />
+        </div>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="init-force" />
+        <label for="init-force">--force (overwrite a non-empty directory)</label>
+      </div>
+
+      <button type="submit">Run company-os init</button>
+    </form>
+    <div id="result-init"></div>
+  </section>
+
+  <section class="panel hidden" id="panel-upgrade">
+    <form id="form-upgrade">
+      <label for="upgrade-out">Instance directory (--out)</label>
+      <input type="text" id="upgrade-out" placeholder="" />
+
+      <div class="row">
+        <div>
+          <label for="upgrade-name">Company name (first run only)</label>
+          <input type="text" id="upgrade-name" placeholder="only needed to bootstrap a manifest" />
+        </div>
+        <div>
+          <label for="upgrade-product">Product name (first run only)</label>
+          <input type="text" id="upgrade-product" placeholder="only needed to bootstrap a manifest" />
+        </div>
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="upgrade-dry-run" checked />
+        <label for="upgrade-dry-run">--dry-run (show changes without writing anything)</label>
+      </div>
+
+      <button type="submit">Run company-os upgrade</button>
+    </form>
+    <div id="result-upgrade"></div>
+  </section>
+
+  <footer>Running against <code id="cwd-footer">…</code> — writes real files on this machine.</footer>
+</main>
+
+<script>
+  const tabs = document.querySelectorAll(".tab");
+  const panels = { init: document.getElementById("panel-init"), upgrade: document.getElementById("panel-upgrade") };
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      Object.entries(panels).forEach(([name, el]) => el.classList.toggle("hidden", name !== tab.dataset.tab));
+    });
+  });
+
+  fetch("/api/defaults").then(r => r.json()).then(d => {
+    document.getElementById("version-badge").textContent = "v" + d.version;
+    document.getElementById("cwd-footer").textContent = d.cwd;
+    document.getElementById("init-out").placeholder = d.default_out;
+    document.getElementById("upgrade-out").placeholder = d.default_out;
+  }).catch(() => {});
+
+  function renderResult(el, body) {
+    if (body.ok === false) {
+      el.innerHTML = `<div class="result err"><strong>Error</strong><pre>${escapeHtml(body.error)}</pre></div>`;
+      return;
+    }
+    el.innerHTML = "";
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function warnBlock(title, items) {
+    if (!items || items.length === 0) return "";
+    return `<div class="warn"><strong>${title} (${items.length})</strong><pre>${escapeHtml(items.join("\n"))}</pre></div>`;
+  }
+
+  async function submitForm(formId, resultId, endpoint, buildPayload, renderSuccess) {
+    const form = document.getElementById(formId);
+    const resultEl = document.getElementById(resultId);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      resultEl.innerHTML = "";
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload()),
+        });
+        const body = await res.json();
+        if (body.ok === false) {
+          renderResult(resultEl, body);
+        } else {
+          resultEl.innerHTML = renderSuccess(body);
+        }
+      } catch (err) {
+        renderResult(resultEl, { ok: false, error: String(err) });
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  submitForm(
+    "form-init", "result-init", "/api/init",
+    () => ({
+      name: document.getElementById("init-name").value,
+      product: document.getElementById("init-product").value,
+      out: document.getElementById("init-out").value,
+      slug: document.getElementById("init-slug").value,
+      force: document.getElementById("init-force").checked,
+      llm_provider: document.getElementById("init-provider").value,
+      model: document.getElementById("init-model").value,
+      langsmith_project: document.getElementById("init-langsmith").value,
+    }),
+    (body) => `<div class="result ok"><strong>Scaffolded Company OS</strong><pre>dest: ${escapeHtml(body.dest)}
+company: ${escapeHtml(body.mapping.COMPANY_NAME)}
+product: ${escapeHtml(body.mapping.PRODUCT_NAME)}
+slug: ${escapeHtml(body.mapping.PRODUCT_SLUG)}</pre>${warnBlock("Unresolved placeholders", body.leftover)}</div>`
+  );
+
+  submitForm(
+    "form-upgrade", "result-upgrade", "/api/upgrade",
+    () => ({
+      out: document.getElementById("upgrade-out").value,
+      name: document.getElementById("upgrade-name").value || null,
+      product: document.getElementById("upgrade-product").value || null,
+      dry_run: document.getElementById("upgrade-dry-run").checked,
+    }),
+    (body) => {
+      if (body.adopted) {
+        return `<div class="result ok"><strong>Baseline recorded</strong><pre>No manifest existed yet — nothing was changed.
+Run upgrade again to actually pull in template changes.</pre></div>`;
+      }
+      const label = body.dry_run ? "Would upgrade" : "Upgraded";
+      return `<div class="result ok"><strong>${label} Company OS</strong><pre>dest: ${escapeHtml(body.dest)}
+added: ${body.added.length}
+updated: ${body.updated.length}
+unchanged: ${body.unchanged.length}
+conflicts: ${body.conflicts.length}</pre>${warnBlock("Conflicts (yours kept, template written as *.upgrade-*)", body.conflicts)}${warnBlock("Unresolved placeholders", body.leftover)}</div>`;
+    }
+  );
+</script>
+</body>
+</html>

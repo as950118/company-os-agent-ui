@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Company OS — Live Agent Pilot</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<style>
+  html, body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif; }
+  #root { min-height: 100vh; }
+  .agent-dot { transition: left 0.9s cubic-bezier(.4,0,.2,1), top 0.9s cubic-bezier(.4,0,.2,1); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  .grid-bg {
+    background-image: linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px),
+                       linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+</style>
+</head>
+<body class="bg-slate-950">
+<div id="root"></div>
+
+<!--
+  This page is a deliberate exception to the rest of `company-os web` (the
+  control panel at `/` ships fully offline, no CDN, no build step). It
+  reuses the component structure of the repo owner's own hand-built
+  metaverse-office prototype almost as-is — only the data source changed:
+  instead of a scripted setInterval timeline, a WebSocket to /ws/run drives
+  real PM -> Architect -> Backend agent state off actual pilot.run_pilot()
+  events. Requires outbound internet access for React/Tailwind/Babel/font.
+-->
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ============================== 정적 데이터 ============================== */
+
+// The 10 roles are fixed by the company-os template (roles/*.md, agents/*.yaml) —
+// not per-instance data, so no need to fetch them from the backend.
+const ROLES = {
+  ceo:               { name: 'CEO',               color: '#a78bfa' },
+  pm:                { name: 'PM',                 color: '#60a5fa' },
+  architect:         { name: 'Architect',          color: '#22d3ee' },
+  designer:          { name: 'Designer',           color: '#fb923c' },
+  backend:           { name: 'Backend',            color: '#4ade80' },
+  frontend:          { name: 'Frontend',           color: '#34d399' },
+  reviewer:          { name: 'Reviewer',           color: '#f472b6' },
+  qa:                { name: 'QA',                 color: '#f87171' },
+  devops:            { name: 'DevOps',             color: '#a3e635' },
+  'technical-writer':{ name: 'Technical Writer',   color: '#c084fc' },
+};
+const ROLE_IDS = Object.keys(ROLES);
+
+// Only pm/architect/backend are ever driven by real events in this pilot.
+const LIVE_ROLES = ['pm', 'architect', 'backend'];
+
+const DESKS = {
+  ceo:               { x: 0, y: 0 },
+  pm:                { x: 2, y: 0 },
+  architect:         { x: 4, y: 0 },
+  designer:          { x: 6, y: 0 },
+  backend:           { x: 2, y: 2 },
+  frontend:          { x: 4, y: 2 },
+  reviewer:          { x: 6, y: 2 },
+  qa:                { x: 2, y: 4 },
+  devops:            { x: 4, y: 4 },
+  'technical-writer':{ x: 6, y: 4 },
+};
+
+const MEETING_SEATS = [
+  { x: 9, y: 0 }, { x: 10, y: 0 }, { x: 11, y: 0 },
+  { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 },
+];
+
+const CELL = 60;
+const MAP_COLS = 13;
+const MAP_ROWS = 6;
+
+const STAGE_INFO = {
+  prd:          { label: 'PRD',                  role: 'pm' },
+  architecture: { label: 'Architecture',         role: 'architect' },
+  api:          { label: 'Implementation Notes', role: 'backend' },
+};
+const STAGE_ORDER = ['prd', 'architecture', 'api'];
+
+/* ============================== 유틸 ============================== */
+
+function initialAgentStates() {
+  const s = {};
+  ROLE_IDS.forEach(id => { s[id] = { status: 'idle', pos: DESKS[id] }; });
+  return s;
+}
+
+function nowLabel() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+}
+
+let logIdCounter = 0;
+function nextLogId() { return ++logIdCounter; }
+
+/* ============================== 하위 컴포넌트 ============================== */
+
+const STATUS_STYLE = {
+  idle:    { ring: 'ring-slate-400', label: '대기 중', pulse: false },
+  working: { ring: 'ring-emerald-400', label: '작업 중', pulse: true },
+  meeting: { ring: 'ring-sky-400', label: '회의 중', pulse: true },
+};
+
+function AgentAvatar({ id, state, isSelected, isLive, onClick }) {
+  const role = ROLES[id];
+  const st = STATUS_STYLE[state.status] || STATUS_STYLE.idle;
+  const left = state.pos.x * CELL + CELL / 2;
+  const top = state.pos.y * CELL + CELL / 2;
+  return (
+    <div
+      className={`agent-dot absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer select-none ${isLive ? '' : 'opacity-50'}`}
+      style={{ left, top, zIndex: isSelected ? 30 : 10 }}
+      onClick={() => onClick(id)}
+      title={`${role.name} · ${st.label}${isLive ? '' : ' (이번 파일럿엔 미참여)'}`}
+    >
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-slate-900 ring-2 ${st.ring} ${st.pulse ? 'animate-pulse' : ''} ${isSelected ? 'ring-4 ring-offset-2 ring-offset-slate-950 ring-yellow-300' : ''}`}
+        style={{ backgroundColor: role.color }}
+      >
+        {role.name[0]}
+      </div>
+      <div className="mt-0.5 text-[9px] text-slate-300 bg-slate-900/70 px-1 rounded whitespace-nowrap">{role.name}</div>
+    </div>
+  );
+}
+
+function OfficeMap({ agentStates, selectedAgentId, onSelectAgent }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+      <div className="text-[11px] text-emerald-300 font-semibold mb-2">🏢 업무 공간 — PM · Architect · Backend만 실시간</div>
+      <div
+        className="relative grid-bg rounded-lg overflow-hidden border border-slate-800"
+        style={{ width: MAP_COLS * CELL, height: MAP_ROWS * CELL, maxWidth: '100%' }}
+      >
+        <div className="absolute border-2 border-sky-500/40 bg-sky-500/5 rounded-md"
+             style={{ left: 9 * CELL, top: 0, width: 4 * CELL, height: 2 * CELL }}>
+          <span className="absolute top-1 left-1 text-[11px] text-sky-300 font-semibold">🗣️ 회의실</span>
+        </div>
+
+        {ROLE_IDS.map(id => {
+          const d = DESKS[id];
+          return (
+            <div key={'desk-' + id}
+                 className="absolute rounded border border-slate-700/60 bg-slate-800/50"
+                 style={{ left: d.x * CELL + CELL / 2 - 16, top: d.y * CELL + CELL / 2 - 10, width: 32, height: 20 }} />
+          );
+        })}
+
+        {ROLE_IDS.map(id => (
+          <AgentAvatar key={id} id={id} state={agentStates[id]}
+                       isSelected={selectedAgentId === id} isLive={LIVE_ROLES.includes(id)}
+                       onClick={onSelectAgent} />
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-400">
+        {Object.entries(STATUS_STYLE).map(([k, v]) => (
+          <div key={k} className="flex items-center gap-1">
+            <span className={`w-2.5 h-2.5 rounded-full ring-2 ${v.ring}`} style={{ backgroundColor: '#1e293b' }} />
+            {v.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RunPanel({ instancePath, setInstancePath, featureRequest, setFeatureRequest, running, mockMode, wsStatus, onStart, defaultOut }) {
+  const badge = mockMode === null ? null : mockMode
+    ? { text: 'MOCK', cls: 'bg-slate-700 text-slate-200' }
+    : { text: 'LIVE · OpenRouter', cls: 'bg-emerald-600 text-white' };
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-bold text-white">▶ 파일럿 실행</div>
+        {badge && <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${badge.cls}`}>{badge.text}</span>}
+      </div>
+      <label className="block text-[11px] text-slate-400 mb-1">Company OS 인스턴스 경로 (company-os init 결과)</label>
+      <input
+        value={instancePath}
+        disabled={running}
+        onChange={e => setInstancePath(e.target.value)}
+        placeholder={defaultOut}
+        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white mb-3 disabled:opacity-50"
+      />
+      <label className="block text-[11px] text-slate-400 mb-1">Feature request</label>
+      <textarea
+        value={featureRequest}
+        disabled={running}
+        onChange={e => setFeatureRequest(e.target.value)}
+        placeholder="예: 사용자가 즐겨찾기한 상품을 알림으로 받아보는 기능"
+        rows={2}
+        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white mb-3 disabled:opacity-50"
+      />
+      <button
+        onClick={onStart}
+        disabled={running}
+        className={`w-full px-4 py-2 rounded-lg text-sm font-semibold ${running ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+      >
+        {running ? '⏳ 실행 중...' : '▶ PM → Architect → Backend 실행'}
+      </button>
+      <div className="mt-2 text-[10px] text-slate-500">
+        연결 상태: {wsStatus} · 실행당 실제 LLM 호출은 정확히 3번(PM/Architect/Backend)입니다.
+      </div>
+    </div>
+  );
+}
+
+function MeetingPanel({ meeting }) {
+  if (!meeting) return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-500">
+      현재 진행 중인 회의가 없습니다.
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-sky-800/60 bg-sky-950/20 p-4">
+      <div className="text-sm font-bold text-sky-200 mb-2">🗣️ {meeting.topic}</div>
+      <div className="flex flex-wrap gap-1 mb-3">
+        {meeting.participants.map(id => (
+          <span key={id} className="text-[10px] px-2 py-0.5 rounded-full text-slate-900 font-semibold" style={{ backgroundColor: ROLES[id].color }}>
+            {ROLES[id].name}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+        {meeting.dialogue.map((line, idx) => {
+          const role = ROLE_IDS.find(id => id === line.speaker);
+          const color = role ? ROLES[role].color : '#94a3b8';
+          const label = role ? ROLES[role].name : line.speaker;
+          return (
+            <div key={idx} className="flex gap-2 items-start">
+              <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-slate-900" style={{ backgroundColor: color }}>
+                {label[0]}
+              </div>
+              <div className="bg-slate-800/70 rounded-lg rounded-tl-none px-3 py-1.5 text-xs text-slate-200">
+                <span className="font-semibold text-slate-100">{label}</span>
+                <span className="text-slate-400"> · {line.text}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProjectPanel({ outputs }) {
+  const [openStage, setOpenStage] = useState(null);
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+      <div className="text-sm font-bold text-white mb-1">📁 산출물</div>
+      <div className="text-[11px] text-slate-500 mb-3">PRD → Architecture → Implementation Notes</div>
+      <div className="space-y-2">
+        {STAGE_ORDER.map(stage => {
+          const output = outputs[stage];
+          const info = STAGE_INFO[stage];
+          const isOpen = openStage === stage;
+          return (
+            <div key={stage} className={`rounded-lg border px-3 py-2 ${output ? 'border-emerald-800/60 bg-emerald-950/10' : 'border-slate-800 bg-slate-900/30'}`}>
+              <button className="w-full flex items-center justify-between text-left" onClick={() => setOpenStage(isOpen ? null : stage)} disabled={!output}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-1.5 py-0.5 rounded text-slate-900 font-bold" style={{ backgroundColor: ROLES[info.role].color }}>{info.label}</span>
+                  <span className="text-xs text-slate-300">{output ? output.title : '대기 중'}</span>
+                </div>
+                <span className="text-xs">{output ? (isOpen ? '▲' : '▼') : '·'}</span>
+              </button>
+              {output && isOpen && (
+                <div className="mt-2 text-[11px] text-slate-400 border-t border-slate-800 pt-2">
+                  <div className="mb-1 text-slate-500">{output.path}</div>
+                  <div className="whitespace-pre-wrap text-slate-400 max-h-64 overflow-y-auto">{output.content}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentInfoPanel({ id, state, onClose }) {
+  if (!id) return null;
+  const role = ROLES[id];
+  const st = STATUS_STYLE[state.status] || STATUS_STYLE.idle;
+  return (
+    <div className="rounded-xl border border-yellow-700/50 bg-yellow-950/10 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-slate-900" style={{ backgroundColor: role.color }}>{role.name[0]}</div>
+          <div>
+            <div className="text-sm font-bold text-white">{role.name}</div>
+            <div className="text-[11px] text-slate-400">{LIVE_ROLES.includes(id) ? '이번 파일럿에서 실시간 동작' : '이번 파일럿엔 미참여'}</div>
+          </div>
+        </div>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-sm">✕</button>
+      </div>
+      <div className={`mt-2 inline-block text-[11px] px-2 py-0.5 rounded-full ring-2 ${st.ring} text-slate-200 bg-slate-900`}>{st.label}</div>
+    </div>
+  );
+}
+
+function ActivityLog({ logs }) {
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
+  }, [logs.length]);
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 flex-1 flex flex-col min-h-0">
+      <div className="text-sm font-bold text-white mb-2">📜 활동 로그</div>
+      <div ref={boxRef} className="flex-1 min-h-[140px] max-h-64 overflow-y-auto space-y-1 pr-1">
+        {logs.length === 0 && <div className="text-xs text-slate-600">Start를 누르면 로그가 여기에 표시됩니다.</div>}
+        {logs.map(l => (
+          <div key={l.id} className={`text-xs ${l.error ? 'text-rose-400' : 'text-slate-300'}`}>
+            <span className="text-slate-600 tabular-nums">[{l.time}]</span> {l.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================== 메인 앱 ============================== */
+
+function App() {
+  const [defaultOut, setDefaultOut] = useState('');
+  const [instancePath, setInstancePath] = useState('');
+  const [featureRequest, setFeatureRequest] = useState('');
+  const [running, setRunning] = useState(false);
+  const [mockMode, setMockMode] = useState(null);
+  const [wsStatus, setWsStatus] = useState('idle');
+
+  const [agentStates, setAgentStates] = useState(initialAgentStates);
+  const [meeting, setMeeting] = useState(null);
+  const [outputs, setOutputs] = useState({});
+  const [logs, setLogs] = useState([]);
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    fetch('/api/defaults').then(r => r.json()).then(d => setDefaultOut(d.default_out)).catch(() => {});
+  }, []);
+
+  const addLog = useCallback((text, isError) => {
+    setLogs(prev => [...prev, { id: nextLogId(), time: nowLabel(), text, error: !!isError }]);
+  }, []);
+
+  const moveTo = useCallback((ids, posFn, status) => {
+    setAgentStates(prev => {
+      const next = { ...prev };
+      ids.forEach((id, idx) => { next[id] = { status, pos: posFn(id, idx) }; });
+      return next;
+    });
+  }, []);
+
+  const handleEvent = useCallback((evt) => {
+    switch (evt.type) {
+      case 'run_started':
+        setMockMode(!!evt.mock);
+        addLog(`파일럿 시작 (${evt.mock ? 'MOCK' : 'LIVE'}): ${evt.feature_request}`);
+        break;
+      case 'stage_started':
+        moveTo([evt.role], id => DESKS[id], 'working');
+        addLog(`${ROLES[evt.role].name} 작업 시작 (${STAGE_INFO[evt.stage].label})`);
+        break;
+      case 'stage_output':
+        setOutputs(prev => ({ ...prev, [evt.stage]: { title: evt.title, content: evt.content, path: evt.path } }));
+        moveTo([evt.role], id => DESKS[id], 'idle');
+        addLog(`📄 산출물 등록 → ${evt.path}`);
+        break;
+      case 'meeting_started':
+        moveTo(evt.participants, (id, idx) => MEETING_SEATS[idx], 'meeting');
+        setMeeting({ topic: evt.topic, participants: evt.participants, dialogue: evt.dialogue });
+        addLog(`🤝 ${evt.topic}`);
+        break;
+      case 'meeting_ended':
+        moveTo(evt.participants, id => DESKS[id], 'idle');
+        setMeeting(null);
+        break;
+      case 'run_completed':
+        setRunning(false);
+        addLog('🎉 파일럿 완료 — PRD → Architecture → Implementation Notes 모두 저장됨');
+        break;
+      case 'error':
+        setRunning(false);
+        addLog(`⚠️ ${evt.message}`, true);
+        break;
+      default:
+        break;
+    }
+  }, [addLog, moveTo]);
+
+  const handleStart = useCallback(() => {
+    const out = instancePath.trim() || defaultOut;
+    const req = featureRequest.trim();
+    if (!req) { addLog('Feature request를 입력해주세요.', true); return; }
+
+    setAgentStates(initialAgentStates());
+    setMeeting(null);
+    setOutputs({});
+    setLogs([]);
+    setMockMode(null);
+    setRunning(true);
+    setWsStatus('connecting');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/run`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsStatus('open');
+      ws.send(JSON.stringify({ type: 'start', out, feature_request: req }));
+    };
+    ws.onmessage = e => handleEvent(JSON.parse(e.data));
+    ws.onerror = () => addLog('WebSocket 연결 오류', true);
+    ws.onclose = () => {
+      setWsStatus('closed');
+      setRunning(r => { if (r) addLog('연결이 종료되었습니다.'); return false; });
+    };
+  }, [instancePath, featureRequest, defaultOut, addLog, handleEvent]);
+
+  const selectedAgent = selectedAgentId;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10">
+      <div className="max-w-7xl mx-auto px-4 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-white">🏙️ Company OS — Live Agent Pilot</h1>
+            <p className="text-xs text-slate-500 mt-1">PM → Architect → Backend, 실제 OpenRouter 호출 기반 (기본은 MOCK).</p>
+          </div>
+          <a href="/" className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">← 제어판으로</a>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,760px)_1fr] gap-4 items-start">
+          <div className="space-y-4">
+            <OfficeMap agentStates={agentStates} selectedAgentId={selectedAgentId}
+                       onSelectAgent={id => setSelectedAgentId(id === selectedAgentId ? null : id)} />
+            <RunPanel
+              instancePath={instancePath} setInstancePath={setInstancePath}
+              featureRequest={featureRequest} setFeatureRequest={setFeatureRequest}
+              running={running} mockMode={mockMode} wsStatus={wsStatus}
+              onStart={handleStart} defaultOut={defaultOut}
+            />
+          </div>
+
+          <div className="space-y-4 min-w-0">
+            {selectedAgent && (
+              <AgentInfoPanel id={selectedAgent} state={agentStates[selectedAgent]} onClose={() => setSelectedAgentId(null)} />
+            )}
+            <MeetingPanel meeting={meeting} />
+            <ProjectPanel outputs={outputs} />
+            <ActivityLog logs={logs} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+  (function () {
+    var source = document.getElementById('app-source').textContent;
+    var compiled = Babel.transform(source, {
+      presets: [['react', { runtime: 'classic' }]],
+    }).code;
+    var script = document.createElement('script');
+    script.textContent = compiled;
+    document.body.appendChild(script);
+  })();
+</script>
+</body>
+</html>

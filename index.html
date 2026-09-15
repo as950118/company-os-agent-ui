@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI 메타버스 오피스 시뮬레이터</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<style>
+  html, body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif; }
+  #root { min-height: 100vh; }
+  .agent-dot { transition: left 0.9s cubic-bezier(.4,0,.2,1), top 0.9s cubic-bezier(.4,0,.2,1); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  .grid-bg {
+    background-image: linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px),
+                       linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+</style>
+</head>
+<body class="bg-slate-950">
+<div id="root"></div>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ============================== 정적 데이터 ============================== */
+
+const TEAMS = {
+  ceo:       { name: 'CEO',     color: '#a78bfa' },
+  planning:  { name: '기획팀',   color: '#60a5fa' },
+  marketing: { name: '마케팅팀', color: '#f472b6' },
+  analytics: { name: '분석팀',   color: '#22d3ee' },
+  dev:       { name: '개발팀',   color: '#4ade80' },
+  design:    { name: '디자인팀', color: '#fb923c' },
+  finance:   { name: '재무팀',   color: '#a3e635' },
+  sales:     { name: '영업팀',   color: '#f87171' },
+  hr:        { name: 'HR팀',    color: '#c084fc' },
+};
+
+const AGENTS = [
+  { id: 'ceo1',    name: '김대표', role: 'CEO',        team: 'ceo' },
+  { id: 'plan1',   name: '이기획', role: '기획팀장',    team: 'planning' },
+  { id: 'plan2',   name: '박기획', role: '기획팀원',    team: 'planning' },
+  { id: 'mkt1',    name: '최마케팅', role: '마케팅팀장', team: 'marketing' },
+  { id: 'mkt2',    name: '정마케팅', role: '마케팅팀원', team: 'marketing' },
+  { id: 'ana1',    name: '강분석', role: '분석팀',      team: 'analytics' },
+  { id: 'dev1',    name: '조개발', role: '개발팀장',    team: 'dev' },
+  { id: 'dev2',    name: '윤개발', role: '개발팀원',    team: 'dev' },
+  { id: 'design1', name: '임디자인', role: '디자인팀',  team: 'design' },
+  { id: 'fin1',    name: '한재무', role: '재무팀',      team: 'finance' },
+  { id: 'sales1',  name: '서영업', role: '영업팀',      team: 'sales' },
+  { id: 'hr1',     name: '신인사', role: 'HR팀',        team: 'hr' },
+];
+const AGENT_IDS = AGENTS.map(a => a.id);
+const AGENT_BY_ID = Object.fromEntries(AGENTS.map(a => [a.id, a]));
+
+const DESKS = {
+  ceo1:    { x: 0, y: 0 },
+  plan1:   { x: 2, y: 0 },
+  plan2:   { x: 3, y: 0 },
+  mkt1:    { x: 2, y: 2 },
+  mkt2:    { x: 3, y: 2 },
+  ana1:    { x: 5, y: 0 },
+  dev1:    { x: 5, y: 2 },
+  dev2:    { x: 6, y: 2 },
+  design1: { x: 7, y: 0 },
+  fin1:    { x: 0, y: 4 },
+  sales1:  { x: 2, y: 4 },
+  hr1:     { x: 5, y: 4 },
+};
+
+const MEETING_SEATS = [
+  { x: 9, y: 0 }, { x: 10, y: 0 }, { x: 11, y: 0 }, { x: 12, y: 0 }, { x: 13, y: 0 },
+  { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 }, { x: 13, y: 1 },
+  { x: 9, y: 2 }, { x: 10, y: 2 },
+];
+const LUNCH_SEATS = MEETING_SEATS.map(s => ({ x: s.x, y: s.y + 4 }));
+
+const CELL = 60;
+const MAP_COLS = 14;
+const MAP_ROWS = 7;
+
+const STAGE_TEAM = { '기획': 'planning', '분석': 'analytics', '디자인': 'design', '개발': 'dev', '마케팅': 'marketing' };
+const STAGE_ORDER = ['기획', '분석', '디자인', '개발', '마케팅'];
+const COLLAB_PARTICIPANTS = { design: ['design1', 'dev1', 'dev2'], marketing: ['mkt1', 'mkt2', 'ceo1', 'sales1'] };
+const MORNING_SPEAKERS = ['ceo1', 'plan1', 'mkt1', 'ana1', 'dev1', 'design1'];
+
+const SCHEDULE = [
+  { id: 'arrival',            time: 540,  label: '출근',                      type: 'arrival' },
+  { id: 'meeting_start',      time: 570,  label: '아침 회의 시작',            type: 'meeting_start' },
+  { id: 'meeting_end',        time: 600,  label: '회의 종료 · 기획 착수',     type: 'meeting_end_stage', stage: '기획' },
+  { id: 'lunch_start',        time: 720,  label: '점심시간',                  type: 'lunch_start' },
+  { id: 'lunch_end',          time: 780,  label: '오후 업무 재개 · 분석',     type: 'lunch_end_stage', stage: '분석' },
+  { id: 'design_collab_s',    time: 840,  label: '디자인 협업 회의',          type: 'collab_start', collab: 'design' },
+  { id: 'design_collab_e',    time: 855,  label: '협업 종료 · 디자인 착수',   type: 'collab_end_stage', collab: 'design', stage: '디자인' },
+  { id: 'dev_stage',          time: 900,  label: '개발 단계 시작',            type: 'stage_start', stage: '개발' },
+  { id: 'mkt_collab_s',       time: 960,  label: '마케팅 협업 회의',          type: 'collab_start', collab: 'marketing' },
+  { id: 'mkt_collab_e',       time: 975,  label: '협업 종료 · 마케팅 착수',   type: 'collab_end_stage', collab: 'marketing', stage: '마케팅' },
+  { id: 'final',              time: 1020, label: '최종 결과물 완성',          type: 'final' },
+  { id: 'departure',          time: 1080, label: '퇴근',                      type: 'departure' },
+];
+
+const DIALOGUE_TEMPLATES = {
+  morning: {
+    ceo1:    ["오늘도 다들 화이팅입시다. '{project}' 프로젝트, 이번 주 안에 기획부터 마케팅까지 전 과정을 마무리해봅시다.", "좋은 아침입니다. 오늘 목표를 다시 한번 공유하죠."],
+    plan1:   ["기획팀은 오전 중으로 캠페인 컨셉 초안을 완성하겠습니다.", "타겟 고객 분석부터 시작해서 컨셉을 잡아보겠습니다."],
+    mkt1:    ["마케팅팀은 기획안 나오는 대로 채널 전략을 준비하겠습니다.", "SNS 채널별 전략을 미리 스케치해두겠습니다."],
+    ana1:    ["최근 시장 데이터를 정리해서 기획팀에 전달하겠습니다.", "경쟁사 캠페인 데이터도 같이 분석해보겠습니다."],
+    dev1:    ["개발팀은 디자인 시안이 나오는 대로 바로 구현에 들어가겠습니다.", "필요한 기술 스택을 미리 점검해두겠습니다."],
+    design1: ["디자인 컨셉은 기획안을 받는 대로 빠르게 스케치해보겠습니다.", "브랜드 톤앤매너 참고자료를 준비해두겠습니다."],
+  },
+  design: {
+    design1: ["개발팀, 디자인 시안 초안 공유드립니다. 컴포넌트 구조 관련 의견 부탁드려요.", "메인 배너 시안 3개를 준비했는데 확인 부탁드립니다."],
+    dev1:    ["시안 확인했습니다. 반응형 처리만 조금 조율하면 바로 구현 가능할 것 같아요.", "네, 좋습니다. 이 구조라면 개발 일정에 무리 없을 것 같습니다."],
+    dev2:    ["애니메이션 효과는 제가 맡아서 구현해보겠습니다.", "컴포넌트 재사용성을 고려해서 작업하겠습니다."],
+  },
+  marketing: {
+    mkt1:    ["개발 완료된 페이지 기준으로 마케팅 소재 제작에 들어가겠습니다.", "런칭 일정을 다시 한번 확인 부탁드립니다."],
+    mkt2:    ["SNS 콘텐츠 캘린더 초안을 공유드리겠습니다.", "인플루언서 협업 리스트도 정리해두겠습니다."],
+    ceo1:    ["좋습니다. 최종 결과물이 나오면 바로 검토하겠습니다.", "예산 관련해서는 재무팀과 미리 조율해두세요."],
+    sales1:  ["영업팀에서도 주요 고객사에 미리 티저 안내를 준비하겠습니다.", "고객 반응 오는 대로 바로 공유드리겠습니다."],
+  },
+};
+
+const OUTPUT_TEMPLATES = {
+  '기획': [{ title: '캠페인 기획안 v1', summary: '2030 세대를 타겟으로 한 신규 콘텐츠 캠페인 기획안입니다.', details: '컨셉: "일상 속 작은 발견"\n타겟: 25~34세 도시 거주 직장인\n핵심 메시지: 제품이 일상에 자연스럽게 스며드는 방식을 보여준다\n채널: 인스타그램, 유튜브 쇼츠, 자사 블로그' }],
+  '분석': [{ title: '시장·데이터 분석 리포트', summary: '경쟁사 캠페인 3건 및 최근 3개월 트렌드 데이터를 분석했습니다.', details: '경쟁사 평균 인게이지먼트율: 4.2%\n추천 콘텐츠 포맷: 15초 숏폼 영상\n최적 게시 시간대: 평일 저녁 7~9시' }],
+  '디자인': [{ title: '비주얼 디자인 시안', summary: '캠페인 메인 비주얼 및 브랜드 톤앤매너 가이드를 완성했습니다.', details: '컬러 팔레트: 웜톤 베이스 + 포인트 컬러\n메인 타이포그래피: 손글씨 느낌의 세리프체\n배너 시안 3종 완성' }],
+  '개발': [{ title: '캠페인 랜딩페이지 구현', summary: '반응형 랜딩페이지 및 이벤트 참여 기능 개발을 완료했습니다.', details: '프론트엔드: React 기반 반응형 페이지\n이벤트 응모 폼 및 실시간 참여자 카운터 구현\n페이지 로딩속도 1.2초 이내로 최적화' }],
+  '마케팅': [{ title: '마케팅 실행 계획서', summary: 'SNS·콘텐츠 배포 일정 및 광고 집행 계획을 수립했습니다.', details: '인스타그램 티저 3회, 본편 1회 게시\n인플루언서 협업 2건 진행\n예상 도달 인원: 약 50만 명' }],
+};
+
+/* ============================== 유틸 ============================== */
+
+function formatTime(min) {
+  const h = Math.floor(min / 60).toString().padStart(2, '0');
+  const m = Math.floor(min % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+let logIdCounter = 0;
+function nextLogId() { return ++logIdCounter; }
+
+function initialAgentStates() {
+  const s = {};
+  AGENT_IDS.forEach(id => { s[id] = { status: 'off', pos: DESKS[id] }; });
+  return s;
+}
+
+/* ============================== Claude API 연동 ============================== */
+
+async function callClaudeAPI(apiKey, prompt, schema) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-5',
+      max_tokens: 1024,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`API 오류 ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const textBlock = (data.content || []).find(b => b.type === 'text');
+  if (!textBlock) throw new Error('응답에서 텍스트 블록을 찾을 수 없습니다.');
+  return JSON.parse(textBlock.text);
+}
+
+async function generateDialogueLines(apiKey, projectName, topicLabel, speakerIds) {
+  const speakers = speakerIds.map(id => AGENT_BY_ID[id]);
+  if (apiKey) {
+    try {
+      const prompt = `당신은 한국 IT 스타트업의 사내 회의 대화를 생성하는 시뮬레이터입니다.\n프로젝트명: "${projectName}"\n회의 주제: ${topicLabel}\n참여자: ${speakers.map(s => `${s.name}(${s.role}, ${TEAMS[s.team].name})`).join(', ')}\n각 참여자가 정확히 한 번씩, 자신의 역할에 맞는 업무 맥락의 짧은 대사(1~2문장, 한국어 구어체)를 순서대로 말하는 회의 대화를 만들어주세요.`;
+      const schema = {
+        type: 'object',
+        properties: { lines: { type: 'array', items: { type: 'object', properties: { speaker: { type: 'string' }, text: { type: 'string' } }, required: ['speaker', 'text'], additionalProperties: false } } },
+        required: ['lines'], additionalProperties: false,
+      };
+      const data = await callClaudeAPI(apiKey, prompt, schema);
+      if (data && Array.isArray(data.lines) && data.lines.length > 0) return data.lines;
+    } catch (err) {
+      console.warn('AI 대화 생성 실패, 템플릿으로 대체합니다.', err);
+    }
+  }
+  const key = topicLabel.includes('디자인') ? 'design' : topicLabel.includes('마케팅') ? 'marketing' : 'morning';
+  return speakerIds.map(id => {
+    const agent = AGENT_BY_ID[id];
+    const options = (DIALOGUE_TEMPLATES[key] && DIALOGUE_TEMPLATES[key][id]) || [`${agent.role} 관점에서 논의를 이어가겠습니다.`];
+    const line = options[Math.floor(Math.random() * options.length)];
+    return { speaker: agent.name, text: line.replace('{project}', projectName) };
+  });
+}
+
+async function generateOutputForStage(apiKey, projectName, stageName) {
+  if (apiKey) {
+    try {
+      const prompt = `당신은 한국 IT 회사의 ${stageName}팀입니다.\n프로젝트명: "${projectName}"\n${stageName} 단계의 업무 결과물을 실제 사내 문서처럼 구체적으로 작성해주세요.`;
+      const schema = {
+        type: 'object',
+        properties: { title: { type: 'string' }, summary: { type: 'string' }, details: { type: 'string' } },
+        required: ['title', 'summary', 'details'], additionalProperties: false,
+      };
+      const data = await callClaudeAPI(apiKey, prompt, schema);
+      if (data && data.title) return data;
+    } catch (err) {
+      console.warn('AI 결과물 생성 실패, 템플릿으로 대체합니다.', err);
+    }
+  }
+  const options = OUTPUT_TEMPLATES[stageName] || [{ title: `${stageName} 결과물`, summary: '', details: '' }];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+/* ============================== 하위 컴포넌트 ============================== */
+
+const STATUS_STYLE = {
+  off:     { ring: 'ring-slate-700', label: '출근 전', pulse: false, opacity: 'opacity-0' },
+  idle:    { ring: 'ring-slate-400', label: '대기 중', pulse: false, opacity: 'opacity-100' },
+  working: { ring: 'ring-emerald-400', label: '업무 중', pulse: true, opacity: 'opacity-100' },
+  meeting: { ring: 'ring-sky-400', label: '회의 중', pulse: true, opacity: 'opacity-100' },
+  lunch:   { ring: 'ring-amber-400', label: '점심 시간', pulse: false, opacity: 'opacity-100' },
+  left:    { ring: 'ring-slate-800', label: '퇴근함', pulse: false, opacity: 'opacity-30' },
+};
+
+function AgentAvatar({ agent, state, isSelected, onClick }) {
+  const st = STATUS_STYLE[state.status] || STATUS_STYLE.idle;
+  const left = state.pos.x * CELL + CELL / 2;
+  const top = state.pos.y * CELL + CELL / 2;
+  if (state.status === 'off') return null;
+  return (
+    <div
+      className={`agent-dot absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer select-none ${st.opacity}`}
+      style={{ left, top, zIndex: isSelected ? 30 : 10 }}
+      onClick={() => onClick(agent.id)}
+      title={`${agent.name} · ${agent.role} · ${st.label}`}
+    >
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-slate-900 ring-2 ${st.ring} ${st.pulse ? 'animate-pulse' : ''} ${isSelected ? 'ring-4 ring-offset-2 ring-offset-slate-950 ring-yellow-300' : ''}`}
+        style={{ backgroundColor: TEAMS[agent.team].color }}
+      >
+        {agent.name[0]}
+      </div>
+      <div className="mt-0.5 text-[9px] text-slate-300 bg-slate-900/70 px-1 rounded whitespace-nowrap">{agent.name}</div>
+    </div>
+  );
+}
+
+function OfficeMap({ agentStates, selectedAgentId, onSelectAgent }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+      <div className="text-[11px] text-emerald-300 font-semibold mb-2">🏢 업무 공간</div>
+      <div
+        className="relative grid-bg rounded-lg overflow-hidden border border-slate-800"
+        style={{ width: MAP_COLS * CELL, height: MAP_ROWS * CELL, maxWidth: '100%' }}
+      >
+        {/* 회의실 */}
+        <div className="absolute border-2 border-sky-500/40 bg-sky-500/5 rounded-md"
+             style={{ left: 9 * CELL, top: 0, width: 5 * CELL, height: 3 * CELL }}>
+          <span className="absolute top-1 left-1 text-[11px] text-sky-300 font-semibold">🗣️ 회의실</span>
+        </div>
+        {/* 휴게실 */}
+        <div className="absolute border-2 border-amber-500/40 bg-amber-500/5 rounded-md"
+             style={{ left: 9 * CELL, top: 4 * CELL, width: 5 * CELL, height: 3 * CELL }}>
+          <span className="absolute top-1 left-1 text-[11px] text-amber-300 font-semibold">🍚 휴게실</span>
+        </div>
+
+        {/* 책상 (배경 아이콘) */}
+        {AGENT_IDS.map(id => {
+          const d = DESKS[id];
+          return (
+            <div key={'desk-' + id}
+                 className="absolute rounded border border-slate-700/60 bg-slate-800/50"
+                 style={{ left: d.x * CELL + CELL / 2 - 16, top: d.y * CELL + CELL / 2 - 10, width: 32, height: 20 }} />
+          );
+        })}
+
+        {/* 에이전트 */}
+        {AGENTS.map(agent => (
+          <AgentAvatar key={agent.id} agent={agent} state={agentStates[agent.id]}
+                       isSelected={selectedAgentId === agent.id} onClick={onSelectAgent} />
+        ))}
+      </div>
+
+      {/* 범례 */}
+      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-400">
+        {Object.entries(STATUS_STYLE).filter(([k]) => k !== 'off').map(([k, v]) => (
+          <div key={k} className="flex items-center gap-1">
+            <span className={`w-2.5 h-2.5 rounded-full ring-2 ${v.ring}`} style={{ backgroundColor: '#1e293b' }} />
+            {v.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TimelinePanel({ simTime, isRunning, speed, onToggleRun, onSpeedChange, onReset }) {
+  const nextEvent = SCHEDULE.find(e => e.time > simTime);
+  const progress = Math.min(100, Math.max(0, ((simTime - 540) / (1080 - 540)) * 100));
+  const ended = simTime >= 1080;
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-3xl font-bold tabular-nums text-white">{formatTime(simTime)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {ended ? '오늘 업무가 모두 종료되었습니다.' : nextEvent ? `다음 일정: ${formatTime(nextEvent.time)} · ${nextEvent.label}` : '-'}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onToggleRun} disabled={ended}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold ${ended ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : isRunning ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
+            {isRunning ? '⏸ 일시정지' : '▶ 시작'}
+          </button>
+          <button onClick={onReset} className="px-3 py-2 rounded-lg text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200">
+            ↺ 초기화
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-full bg-gradient-to-r from-emerald-500 to-sky-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+      </div>
+      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+        <span>09:00 출근</span><span>18:00 퇴근</span>
+      </div>
+
+      <div className="flex items-center gap-2 mt-4">
+        <span className="text-xs text-slate-400 mr-1">속도</span>
+        {[1, 5, 15, 30].map(s => (
+          <button key={s} onClick={() => onSpeedChange(s)}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold ${speed === s ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+            {s}x
+          </button>
+        ))}
+        <span className="text-[10px] text-slate-500 ml-2">(1x = 실제 1초당 시뮬레이션 1분 진행)</span>
+      </div>
+    </div>
+  );
+}
+
+function MeetingPanel({ meeting }) {
+  if (!meeting) return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-500">
+      현재 진행 중인 회의가 없습니다.
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-sky-800/60 bg-sky-950/20 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-bold text-sky-200">🗣️ {meeting.topic}</div>
+        {meeting.generating && <div className="text-[11px] text-sky-400 animate-pulse">AI가 대화를 생성하는 중...</div>}
+      </div>
+      <div className="flex flex-wrap gap-1 mb-3">
+        {meeting.participants.map(id => (
+          <span key={id} className="text-[10px] px-2 py-0.5 rounded-full text-slate-900 font-semibold" style={{ backgroundColor: TEAMS[AGENT_BY_ID[id].team].color }}>
+            {AGENT_BY_ID[id].name}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+        {meeting.dialogue.length === 0 && !meeting.generating && (
+          <div className="text-xs text-slate-500">대화가 아직 생성되지 않았습니다.</div>
+        )}
+        {meeting.dialogue.map((line, idx) => {
+          const agent = AGENTS.find(a => line.speaker.includes(a.name));
+          const color = agent ? TEAMS[agent.team].color : '#94a3b8';
+          return (
+            <div key={idx} className="flex gap-2 items-start">
+              <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-slate-900" style={{ backgroundColor: color }}>
+                {line.speaker[0]}
+              </div>
+              <div className="bg-slate-800/70 rounded-lg rounded-tl-none px-3 py-1.5 text-xs text-slate-200">
+                <span className="font-semibold text-slate-100">{line.speaker}</span>
+                <span className="text-slate-400"> · {line.text}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProjectPanel({ project }) {
+  const [openStage, setOpenStage] = useState(null);
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-sm font-bold text-white">📁 {project.name}</div>
+        {project.stage === '완료' && <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold">🎉 완료</span>}
+      </div>
+      <div className="text-[11px] text-slate-500 mb-3">기획 → 분석 → 디자인 → 개발 → 마케팅</div>
+      <div className="space-y-2">
+        {STAGE_ORDER.map(stage => {
+          const output = project.outputs[stage];
+          const isCurrent = project.stage === stage;
+          const isOpen = openStage === stage;
+          return (
+            <div key={stage} className={`rounded-lg border px-3 py-2 ${output ? 'border-emerald-800/60 bg-emerald-950/10' : isCurrent ? 'border-sky-800/60 bg-sky-950/10' : 'border-slate-800 bg-slate-900/30'}`}>
+              <button className="w-full flex items-center justify-between text-left" onClick={() => setOpenStage(isOpen ? null : stage)} disabled={!output}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-1.5 py-0.5 rounded text-slate-900 font-bold" style={{ backgroundColor: TEAMS[STAGE_TEAM[stage]].color }}>{stage}</span>
+                  <span className="text-xs text-slate-300">{output ? output.title : isCurrent ? '진행 중...' : '대기 중'}</span>
+                </div>
+                <span className="text-xs">{output ? (isOpen ? '▲' : '▼') : output === undefined && isCurrent ? '⏳' : '·'}</span>
+              </button>
+              {output && isOpen && (
+                <div className="mt-2 text-[11px] text-slate-400 border-t border-slate-800 pt-2">
+                  <div className="mb-1">{output.summary}</div>
+                  <div className="whitespace-pre-line text-slate-500">{output.details}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentInfoPanel({ agent, state, logs, onClose }) {
+  if (!agent) return null;
+  const related = logs.filter(l => l.text.includes(agent.name)).slice(-6).reverse();
+  const st = STATUS_STYLE[state.status] || STATUS_STYLE.idle;
+  return (
+    <div className="rounded-xl border border-yellow-700/50 bg-yellow-950/10 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-slate-900" style={{ backgroundColor: TEAMS[agent.team].color }}>{agent.name[0]}</div>
+          <div>
+            <div className="text-sm font-bold text-white">{agent.name}</div>
+            <div className="text-[11px] text-slate-400">{agent.role} · {TEAMS[agent.team].name}</div>
+          </div>
+        </div>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-sm">✕</button>
+      </div>
+      <div className={`mt-2 inline-block text-[11px] px-2 py-0.5 rounded-full ring-2 ${st.ring} text-slate-200 bg-slate-900`}>{st.label}</div>
+      <div className="mt-3 text-[11px] text-slate-500 font-semibold">관련 최근 활동</div>
+      <div className="mt-1 space-y-1 max-h-32 overflow-y-auto">
+        {related.length === 0 && <div className="text-[11px] text-slate-600">최근 활동 기록이 없습니다.</div>}
+        {related.map(l => (
+          <div key={l.id} className="text-[11px] text-slate-400"><span className="text-slate-600">[{l.time}]</span> {l.text}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityLog({ logs }) {
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
+  }, [logs.length]);
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 flex-1 flex flex-col min-h-0">
+      <div className="text-sm font-bold text-white mb-2">📜 활동 로그</div>
+      <div ref={boxRef} className="flex-1 min-h-[140px] max-h-64 overflow-y-auto space-y-1 pr-1">
+        {logs.length === 0 && <div className="text-xs text-slate-600">시뮬레이션을 시작하면 로그가 여기에 표시됩니다.</div>}
+        {logs.map(l => (
+          <div key={l.id} className="text-xs text-slate-300">
+            <span className="text-slate-600 tabular-nums">[{l.time}]</span> {l.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const SEVERITY_STYLE = {
+  critical: { label: 'Critical', color: '#f87171' },
+  high: { label: 'High', color: '#fb923c' },
+  medium: { label: 'Medium', color: '#facc15' },
+  low: { label: 'Low', color: '#94a3b8' },
+};
+
+const TEAM_EMOJI = { '분석': '📊', '개발': '💻', '디자인': '🎨' };
+
+function RealReportPanel({ report, onClose }) {
+  const [openTeam, setOpenTeam] = useState(null);
+  if (!report) return null;
+  const teamEntries = Object.entries(report.teams || {});
+  const autoMerged = report.auto_merged || [];
+  const needsReview = report.needs_review || [];
+
+  return (
+    <div className="rounded-xl border border-emerald-800/60 bg-emerald-950/10 p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-sm font-bold text-emerald-200">📡 실제 오늘의 점검 리포트 · {report.date}</div>
+          <div className="text-[11px] text-slate-500">{report.project_name}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          {report.issue_url && (
+            <a href={report.issue_url} target="_blank" rel="noreferrer"
+               className="text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200">
+              GitHub Issue 보기 ↗
+            </a>
+          )}
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-sm">✕</button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+        {teamEntries.map(([teamName, team]) => {
+          const counts = team.counts || {};
+          const isOpen = openTeam === teamName;
+          return (
+            <div key={teamName} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3">
+              <button className="w-full text-left" onClick={() => setOpenTeam(isOpen ? null : teamName)}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white">{TEAM_EMOJI[teamName] || '🗂️'} {teamName}팀</span>
+                  <span className="text-xs text-slate-500">{isOpen ? '▲' : '▼'}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">{team.title}</div>
+              </button>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {['critical', 'high', 'medium', 'low'].map(sev => (
+                  counts[sev] ? (
+                    <span key={sev} className="text-[10px] px-1.5 py-0.5 rounded text-slate-900 font-semibold"
+                          style={{ backgroundColor: SEVERITY_STYLE[sev].color }}>
+                      {SEVERITY_STYLE[sev].label} {counts[sev]}
+                    </span>
+                  ) : null
+                ))}
+              </div>
+              {isOpen && (
+                <div className="mt-2 text-[11px] text-slate-400 border-t border-slate-800 pt-2">
+                  <div className="mb-1">{team.summary}</div>
+                  <div className="whitespace-pre-line text-slate-500">{team.details}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {autoMerged.length > 0 && (
+        <div className="mb-2">
+          <div className="text-[11px] font-semibold text-emerald-300 mb-1">✅ 오늘 자동으로 처리한 것</div>
+          <div className="space-y-1">
+            {autoMerged.map((item, idx) => (
+              <div key={idx} className="text-[11px] text-slate-400">
+                {item.pr_url
+                  ? <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">{item.title}</a>
+                  : <span>{item.title}</span>}
+                {item.team && <span className="text-slate-600"> · {item.team}팀</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {needsReview.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-amber-300 mb-1">⚠️ 사용자 검토가 필요한 것 (중요한 결정)</div>
+          <div className="space-y-1">
+            {needsReview.map((item, idx) => {
+              const sevStyle = SEVERITY_STYLE[item.severity] || { label: item.severity, color: '#94a3b8' };
+              return (
+                <div key={idx} className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                  {item.severity && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded text-slate-900 font-semibold" style={{ backgroundColor: sevStyle.color }}>
+                      {sevStyle.label}
+                    </span>
+                  )}
+                  {item.pr_url
+                    ? <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">{item.title}</a>
+                    : <span>{item.title}</span>}
+                  {item.team && <span className="text-slate-600"> · {item.team}팀</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== 메인 앱 ============================== */
+
+const REAL_REPORT_URL = 'https://raw.githubusercontent.com/as950118/auto-trade/main/reports/latest.json';
+
+function App() {
+  const [projectName, setProjectName] = useState('신규 콘텐츠 캠페인');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('office_sim_api_key') || '');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+
+  const [realReport, setRealReport] = useState(null);
+  const [realReportLoading, setRealReportLoading] = useState(false);
+  const [realReportError, setRealReportError] = useState(null);
+
+  const loadRealReport = useCallback(async () => {
+    setRealReportLoading(true);
+    setRealReportError(null);
+    try {
+      const res = await fetch(`${REAL_REPORT_URL}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 404
+            ? '아직 리포트가 없습니다. 일일 자동 점검 루틴이 아직 실행되지 않았을 수 있어요.'
+            : `리포트 요청 실패 (HTTP ${res.status})`
+        );
+      }
+      const data = await res.json();
+      setRealReport(data);
+    } catch (err) {
+      setRealReportError(err.message || '리포트를 불러오지 못했습니다. 네트워크 상태를 확인해주세요.');
+    } finally {
+      setRealReportLoading(false);
+    }
+  }, []);
+
+  const [simTime, setSimTime] = useState(540);
+  const [isRunning, setIsRunning] = useState(false);
+  const [speed, setSpeed] = useState(5);
+
+  const [agentStates, setAgentStates] = useState(initialAgentStates);
+  const [logs, setLogs] = useState([]);
+  const [meeting, setMeeting] = useState(null);
+  const [project, setProject] = useState({ name: projectName, stage: null, outputs: {} });
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+
+  const triggeredRef = useRef(new Set());
+
+  useEffect(() => { localStorage.setItem('office_sim_api_key', apiKey); }, [apiKey]);
+
+  const addLog = useCallback((time, text) => {
+    setLogs(prev => [...prev, { id: nextLogId(), time: formatTime(time), text }]);
+  }, []);
+
+  const moveAll = useCallback((ids, posFn, status) => {
+    setAgentStates(prev => {
+      const next = { ...prev };
+      ids.forEach((id, idx) => { next[id] = { status, pos: posFn(id, idx) }; });
+      return next;
+    });
+  }, []);
+
+  const runMeeting = useCallback((topic, participantIds) => {
+    setMeeting({ topic, participants: participantIds, dialogue: [], generating: true });
+    generateDialogueLines(apiKey, projectName, topic, participantIds)
+      .then(lines => setMeeting(m => (m ? { ...m, dialogue: lines, generating: false } : m)))
+      .catch(() => setMeeting(m => (m ? { ...m, generating: false } : m)));
+  }, [apiKey, projectName]);
+
+  const startStage = useCallback((stageName, time) => {
+    setProject(prev => ({ ...prev, stage: stageName }));
+    addLog(time, `🚀 ${TEAMS[STAGE_TEAM[stageName]].name}이(가) '${stageName}' 단계 작업을 시작합니다.`);
+    generateOutputForStage(apiKey, projectName, stageName).then(output => {
+      setProject(prev => ({ ...prev, outputs: { ...prev.outputs, [stageName]: output } }));
+      addLog(time, `📄 [${stageName}] 결과물이 등록되었습니다 → "${output.title}"`);
+    }).catch(() => {});
+  }, [apiKey, projectName, addLog]);
+
+  const handleEvent = useCallback((evt) => {
+    switch (evt.type) {
+      case 'arrival':
+        moveAll(AGENT_IDS, id => DESKS[id], 'idle');
+        addLog(evt.time, '🏢 전 직원이 출근하여 각자의 자리에 착석했습니다.');
+        break;
+      case 'meeting_start':
+        moveAll(AGENT_IDS, (id, idx) => MEETING_SEATS[idx], 'meeting');
+        addLog(evt.time, '📋 아침 회의가 시작되었습니다. 전 직원이 회의실에 모였습니다.');
+        runMeeting('아침 회의 - 오늘의 목표 공유', MORNING_SPEAKERS);
+        break;
+      case 'meeting_end_stage':
+        moveAll(AGENT_IDS, id => DESKS[id], 'working');
+        setMeeting(null);
+        addLog(evt.time, '✅ 아침 회의를 마치고 각 팀이 업무를 시작합니다.');
+        startStage(evt.stage, evt.time);
+        break;
+      case 'lunch_start':
+        moveAll(AGENT_IDS, (id, idx) => LUNCH_SEATS[idx], 'lunch');
+        addLog(evt.time, '🍚 점심시간입니다. 모두 휴게실로 이동했습니다.');
+        break;
+      case 'lunch_end_stage':
+        moveAll(AGENT_IDS, id => DESKS[id], 'working');
+        addLog(evt.time, '💼 점심시간이 끝나고 오후 업무를 재개합니다.');
+        startStage(evt.stage, evt.time);
+        break;
+      case 'collab_start': {
+        const ids = COLLAB_PARTICIPANTS[evt.collab];
+        moveAll(ids, (id, idx) => MEETING_SEATS[idx], 'meeting');
+        const label = evt.collab === 'design' ? '디자인팀-개발팀 협업 회의' : '마케팅 실행 협업 회의';
+        addLog(evt.time, `🤝 ${label}가 시작되었습니다.`);
+        runMeeting(label, ids);
+        break;
+      }
+      case 'collab_end_stage': {
+        const ids = COLLAB_PARTICIPANTS[evt.collab];
+        moveAll(ids, id => DESKS[id], 'working');
+        setMeeting(null);
+        addLog(evt.time, '✅ 협업 회의를 마쳤습니다.');
+        startStage(evt.stage, evt.time);
+        break;
+      }
+      case 'stage_start':
+        startStage(evt.stage, evt.time);
+        break;
+      case 'final':
+        setProject(prev => ({ ...prev, stage: '완료' }));
+        addLog(evt.time, '🎉 모든 단계가 완료되어 최종 결과물이 완성되었습니다!');
+        break;
+      case 'departure':
+        moveAll(AGENT_IDS, id => DESKS[id], 'left');
+        addLog(evt.time, '🌙 하루 업무를 마치고 모두 퇴근했습니다. 수고하셨습니다!');
+        break;
+      default:
+        break;
+    }
+  }, [moveAll, addLog, runMeeting, startStage]);
+
+  // 시간 진행 타이머
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = setInterval(() => {
+      setSimTime(t => Math.min(t + speed, 1080));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isRunning, speed]);
+
+  useEffect(() => { if (simTime >= 1080) setIsRunning(false); }, [simTime]);
+
+  // 일정 트리거
+  useEffect(() => {
+    SCHEDULE.forEach(evt => {
+      if (simTime >= evt.time && !triggeredRef.current.has(evt.id)) {
+        triggeredRef.current.add(evt.id);
+        handleEvent(evt);
+      }
+    });
+  }, [simTime, handleEvent]);
+
+  const handleReset = () => {
+    setIsRunning(false);
+    setSimTime(540);
+    setAgentStates(initialAgentStates());
+    setLogs([]);
+    setMeeting(null);
+    setProject({ name: projectName, stage: null, outputs: {} });
+    setSelectedAgentId(null);
+    triggeredRef.current = new Set();
+  };
+
+  const started = triggeredRef.current.has('arrival');
+  const selectedAgent = selectedAgentId ? AGENT_BY_ID[selectedAgentId] : null;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10">
+      <div className="max-w-7xl mx-auto px-4 pt-6">
+        {/* 헤더 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-white">🏙️ AI 메타버스 오피스 시뮬레이터</h1>
+            <p className="text-xs text-slate-500 mt-1">12명의 AI 에이전트가 하루 동안 프로젝트를 함께 진행합니다.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={projectName}
+              disabled={started}
+              onChange={e => { setProjectName(e.target.value); setProject(p => ({ ...p, name: e.target.value })); }}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white w-56 disabled:opacity-50"
+              placeholder="프로젝트 이름"
+            />
+            <button onClick={loadRealReport} disabled={realReportLoading}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:opacity-90 disabled:opacity-50">
+              {realReportLoading ? '📡 불러오는 중...' : '📡 오늘의 실제 리포트 불러오기'}
+            </button>
+            <button onClick={() => setShowApiKeyInput(v => !v)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${apiKey ? 'bg-emerald-700 text-white' : 'bg-slate-800 text-slate-300'} hover:opacity-90`}>
+              {apiKey ? '🔑 API 연결됨' : '🔑 Claude API 키 설정'}
+            </button>
+          </div>
+        </div>
+
+        {realReportError && (
+          <div className="mb-4 rounded-xl border border-amber-800/60 bg-amber-950/10 p-3 text-xs text-amber-300 flex items-center justify-between">
+            <span>⚠️ {realReportError}</span>
+            <button onClick={() => setRealReportError(null)} className="text-amber-500 hover:text-amber-300">✕</button>
+          </div>
+        )}
+        <RealReportPanel report={realReport} onClose={() => setRealReport(null)} />
+
+        {showApiKeyInput && (
+          <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="text-sm font-semibold text-white mb-1">Claude API 키 (선택사항)</div>
+            <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
+              키를 입력하면 회의 대화와 업무 결과물이 Claude Opus 5로 실시간 생성됩니다. 비워두면 미리 준비된 템플릿으로 동작합니다.
+              ⚠️ 이 키는 브라우저에서 Anthropic API로 직접 전송되며(<code>anthropic-dangerous-direct-browser-access</code>), 로컬 저장소에 저장됩니다.
+              개인용 데모 목적으로만 사용하고, 공개 배포 시에는 절대 사용하지 마세요.
+            </p>
+            <div className="flex gap-2">
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+                     placeholder="sk-ant-..." className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+              <button onClick={() => { setApiKey(''); localStorage.removeItem('office_sim_api_key'); }}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">키 삭제</button>
+            </div>
+          </div>
+        )}
+
+        {/* 본문 */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,860px)_1fr] gap-4 items-start">
+          <div className="space-y-4">
+            <OfficeMap agentStates={agentStates} selectedAgentId={selectedAgentId} onSelectAgent={id => setSelectedAgentId(id === selectedAgentId ? null : id)} />
+            <TimelinePanel simTime={simTime} isRunning={isRunning} speed={speed}
+                           onToggleRun={() => setIsRunning(r => !r)} onSpeedChange={setSpeed} onReset={handleReset} />
+          </div>
+
+          <div className="space-y-4 min-w-0">
+            {selectedAgent && (
+              <AgentInfoPanel agent={selectedAgent} state={agentStates[selectedAgent.id]} logs={logs} onClose={() => setSelectedAgentId(null)} />
+            )}
+            <MeetingPanel meeting={meeting} />
+            <ProjectPanel project={project} />
+            <ActivityLog logs={logs} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+  // Babel Standalone's default auto-scan uses the automatic JSX runtime
+  // (imports "react/jsx-runtime"), which fails in a plain <script> context.
+  // Transform manually with the classic runtime instead.
+  (function () {
+    var source = document.getElementById('app-source').textContent;
+    var compiled = Babel.transform(source, {
+      presets: [['react', { runtime: 'classic' }]],
+    }).code;
+    var script = document.createElement('script');
+    script.textContent = compiled;
+    document.body.appendChild(script);
+  })();
+</script>
+</body>
+</html>
