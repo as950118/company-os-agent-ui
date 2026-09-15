@@ -156,7 +156,10 @@ class CliTests(unittest.TestCase):
     def test_help_shows_options(self) -> None:
         import os
 
-        env = {**os.environ, "PYTHONPATH": str(SRC_ROOT)}
+        # NO_COLOR/TERM=dumb: some CI runners force ANSI color even though
+        # stdout is piped (not a tty), which would otherwise split
+        # "--host"/"--port" across escape codes and break substring checks.
+        env = {**os.environ, "PYTHONPATH": str(SRC_ROOT), "NO_COLOR": "1", "TERM": "dumb"}
         result = subprocess.run(
             [sys.executable, "-m", "company_os_agent_ui.cli", "--help"],
             capture_output=True,
