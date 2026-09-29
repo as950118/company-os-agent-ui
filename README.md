@@ -36,6 +36,13 @@ company-os-agent-ui
 
 화면의 Init/Upgrade 탭은 `company-os init`/`company-os upgrade`의 옵션을 그대로 노출하며, 내부적으로 `company_os_cli.scaffold`의 `scaffold()`/`upgrade()`를 그대로 호출하므로 실제 파일시스템에 씁니다 — 시뮬레이션이 아닙니다. 제출 결과(생성 경로, 파일 개수, 남은 플레이스홀더 경고, conflict 목록, 에러 메시지)는 CLI 출력과 동일한 정보를 API 응답으로 보여줍니다.
 
+Board 탭은 인스턴스 디렉터리를 대상으로 진행 현황을 한눈에 보여줍니다 — 새 파일 형식을 만들지 않고 `company-os-cli`가 이미 쓰는 문서만 읽습니다.
+
+- **Done / To do / In review·QA**: `tasks/*.md`(`docs/task-template.md`로 만든 파일) 각각의 `Status` 필드(Backlog/Ready/In Progress/In Review/QA/Done)를 읽어 3열로 분류합니다.
+- **Docs needing review**: `projects/<slug>/{prd,architecture,api,adr}/*.md`와 `memory/decision-memory/ADR-*.md`의 `Status` 필드가 `Draft`/`Proposed`인 문서(즉 아직 승인 전인 PRD/Architecture/ADR)를 모아 보여줍니다.
+- 읽기 전용 GET 엔드포인트(`/api/board?out=...`)라서 파일을 쓰지 않으며, Refresh 버튼이나 Enter로 다시 스캔합니다.
+- 카드를 클릭하면 우측 패널에서 해당 Markdown 문서 원문을 바로 렌더링해서 보여주며(`/api/doc?out=...&path=...`), 문서 안의 상대 링크(다른 PRD/Architecture/ADR로의 링크)를 클릭해 인스턴스 안을 계속 탐색할 수 있습니다. 인스턴스 디렉터리 바깥 경로나 `.md`가 아닌 파일은 거부합니다.
+
 ## 실제 에이전트 파일럿 (`/office`)
 
 `company-os-agent-ui`를 띄우면 `/`(제어판) 외에 `/office`에서 **실제 PM → Architect → Backend 에이전트 파일럿**을 실행할 수 있습니다. `company-os init`으로 만든 인스턴스의 `agents/pm.yaml`·`roles/pm.md` 같은 실제 역할 정의와 `docs/prd-template.md`/`architecture-template.md` 포맷을 그대로 사용해 PRD → Architecture → Implementation Notes를 실제로 생성하고, PM→Architect, Architect→Backend 핸드오프 순간에는 화면의 오피스 맵에서 두 에이전트가 회의실로 이동하는 모습을 실시간(WebSocket)으로 보여줍니다.
@@ -63,11 +70,12 @@ company-os-agent-ui/
 │   ├── __init__.py                  ← __version__
 │   ├── app.py                       ← FastAPI 앱 (company-os-cli의 scaffold()/upgrade()/pilot.run_pilot() 호출)
 │   ├── pilot.py                     ← PM→Architect→Backend 파일럿 오케스트레이션 + OpenRouter 클라이언트
+│   ├── board.py                     ← tasks/*.md·projects/**/*.md 상태를 읽는 Board 탭 스캐너 (읽기 전용)
 │   ├── cli.py                       ← Typer CLI (`company-os-agent-ui` 명령)
 │   └── static/
 │       ├── index.html               ← 제어판 프론트엔드 (빌드 스텝/CDN 없음)
 │       └── office.html              ← 파일럿 프론트엔드 (CDN 사용 — 의도적 예외)
-├── tests/test_web.py                ← 웹 제어판 API 스모크 테스트
+├── tests/test_web.py                ← 웹 제어판 API 스모크 테스트 (Board API 포함)
 ├── tests/test_pilot.py              ← 파일럿 오케스트레이션 테스트 (전부 MOCK 모드, 네트워크 불필요)
 └── .github/workflows/               ← CI (테스트) + publish (태그 push 시 PyPI 배포)
 ```

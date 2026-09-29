@@ -1,6 +1,6 @@
 [project]
 name = "company-os-agent-ui"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local web control panel + live PM/Architect/Backend agent pilot for company-os-cli instances"
 readme = "README.md"
 license = "MIT"

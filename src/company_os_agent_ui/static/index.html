@@ -72,6 +72,63 @@
   .result pre { white-space: pre-wrap; word-break: break-all; margin: 4px 0 0; font-size: 12px; }
   footer { margin-top: 20px; font-size: 11px; color: var(--text-dim); text-align: center; }
   footer code { color: var(--text); }
+
+  .board-toolbar { display: flex; gap: 8px; align-items: flex-end; }
+  .board-toolbar > div { flex: 1; }
+  .board-toolbar button { margin-top: 0; width: auto; padding: 8px 16px; white-space: nowrap; }
+  .board-cols { display: flex; gap: 12px; margin-top: 18px; }
+  .board-col { flex: 1; min-width: 0; }
+  .board-col h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .board-col h3 .count { color: var(--text); }
+  .card {
+    background: var(--bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 10px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .card .card-title { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+  .card .card-meta { color: var(--text-dim); font-size: 11px; display: flex; justify-content: space-between; gap: 8px; }
+  .status-pill { border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+  .status-pill.done { color: var(--green); background: var(--green-bg); }
+  .status-pill.review { color: var(--amber); background: var(--amber-bg); }
+  .status-pill.todo { color: var(--accent); background: rgba(56, 189, 248, 0.1); }
+  .empty-note { color: var(--text-dim); font-size: 12px; padding: 8px 0; }
+  .card.clickable { cursor: pointer; transition: border-color 0.15s; }
+  .card.clickable:hover, .card.clickable:focus-visible { border-color: var(--accent); outline: none; }
+
+  /* 문서 상세 패널 */
+  .doc-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.6); z-index: 50; }
+  .doc-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(860px, 100vw); z-index: 51;
+    background: var(--panel); border-left: 1px solid var(--panel-border);
+    display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+  }
+  .doc-head { padding: 14px 18px; border-bottom: 1px solid var(--panel-border); display: flex; gap: 10px; align-items: flex-start; }
+  .doc-head .doc-titles { flex: 1; min-width: 0; }
+  .doc-head .doc-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+  .doc-head .doc-path { font-size: 11px; color: var(--text-dim); word-break: break-all; }
+  .doc-head button { margin: 0; width: auto; padding: 6px 10px; background: var(--bg); border: 1px solid var(--panel-border); color: var(--text); }
+  .doc-head button:hover:not(:disabled) { background: var(--panel-border); }
+  .doc-body { flex: 1; overflow-y: auto; padding: 8px 22px 28px; font-size: 13.5px; line-height: 1.7; }
+  .md h1 { font-size: 18px; margin: 18px 0 8px; }
+  .md h2 { font-size: 15px; margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
+  .md h3 { font-size: 13.5px; margin: 16px 0 6px; }
+  .md h4, .md h5, .md h6 { font-size: 13px; margin: 12px 0 4px; color: var(--text-dim); }
+  .md p { margin: 8px 0; }
+  .md a { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md code { background: var(--bg); border: 1px solid var(--panel-border); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .md pre { background: var(--bg); border: 1px solid var(--panel-border); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+  .md pre code { border: none; padding: 0; background: none; }
+  .md ul, .md ol { padding-left: 22px; margin: 6px 0; }
+  .md li { margin: 2px 0; }
+  .md li.task { list-style: none; margin-left: -18px; }
+  .md li.task input { margin-right: 6px; vertical-align: -1px; }
+  .md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--panel-border); color: var(--text-dim); }
+  .md hr { border: none; border-top: 1px solid var(--panel-border); margin: 16px 0; }
+  .md .table-wrap { overflow-x: auto; margin: 8px 0; }
+  .md table { border-collapse: collapse; font-size: 12.5px; min-width: 60%; }
+  .md th, .md td { border: 1px solid var(--panel-border); padding: 5px 9px; text-align: left; vertical-align: top; }
+  .md th { background: var(--bg); color: var(--text-dim); font-weight: 600; }
+  .md del { color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -84,6 +141,7 @@
   <div class="tabs">
     <div class="tab active" data-tab="init">Init</div>
     <div class="tab" data-tab="upgrade">Upgrade</div>
+    <div class="tab" data-tab="board">Board</div>
   </div>
 
   <section class="panel" id="panel-init">
@@ -155,17 +213,46 @@
     <div id="result-upgrade"></div>
   </section>
 
+  <section class="panel hidden" id="panel-board">
+    <div class="board-toolbar">
+      <div>
+        <label for="board-out">Instance directory (--out)</label>
+        <input type="text" id="board-out" placeholder="" />
+      </div>
+      <button type="button" id="board-refresh">Refresh</button>
+    </div>
+    <div id="result-board"></div>
+  </section>
+
   <footer>Running against <code id="cwd-footer">…</code> — writes real files on this machine.</footer>
 </main>
 
+<div id="doc-overlay" class="doc-overlay hidden"></div>
+<aside id="doc-drawer" class="doc-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="doc-title">
+  <div class="doc-head">
+    <button type="button" id="doc-back" title="이전 문서" disabled>←</button>
+    <div class="doc-titles">
+      <div class="doc-title" id="doc-title"></div>
+      <div class="doc-path" id="doc-meta"></div>
+    </div>
+    <button type="button" id="doc-close" title="닫기 (Esc)">✕</button>
+  </div>
+  <div class="doc-body md" id="doc-body"></div>
+</aside>
+
 <script>
   const tabs = document.querySelectorAll(".tab");
-  const panels = { init: document.getElementById("panel-init"), upgrade: document.getElementById("panel-upgrade") };
+  const panels = {
+    init: document.getElementById("panel-init"),
+    upgrade: document.getElementById("panel-upgrade"),
+    board: document.getElementById("panel-board"),
+  };
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       Object.entries(panels).forEach(([name, el]) => el.classList.toggle("hidden", name !== tab.dataset.tab));
+      if (tab.dataset.tab === "board") loadBoard();
     });
   });
 
@@ -174,6 +261,12 @@
     document.getElementById("cwd-footer").textContent = d.cwd;
     document.getElementById("init-out").placeholder = d.default_out;
     document.getElementById("upgrade-out").placeholder = d.default_out;
+    document.getElementById("board-out").placeholder = d.default_out;
+    // 마지막으로 연 인스턴스 경로 복원 (브라우저별, 저장 실패해도 동작에는 영향 없음)
+    try {
+      const saved = localStorage.getItem(BOARD_OUT_KEY);
+      if (saved && !document.getElementById("board-out").value) document.getElementById("board-out").value = saved;
+    } catch (_) { /* private mode 등 */ }
   }).catch(() => {});
 
   function renderResult(el, body) {
@@ -183,6 +276,8 @@
     }
     el.innerHTML = "";
   }
+
+  const BOARD_OUT_KEY = "company-os-agent-ui.board-out";
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -260,6 +355,299 @@ unchanged: ${body.unchanged.length}
 conflicts: ${body.conflicts.length}</pre>${warnBlock("Conflicts (yours kept, template written as *.upgrade-*)", body.conflicts)}${warnBlock("Unresolved placeholders", body.leftover)}</div>`;
     }
   );
+
+  function statusPill(group, status) {
+    return `<span class="status-pill ${group}">${escapeHtml(status)}</span>`;
+  }
+
+  function taskCard(task) {
+    return `<div class="card clickable" tabindex="0" role="button" data-doc-path="${escapeHtml(task.path)}">
+      <div class="card-title">${escapeHtml(task.title)}</div>
+      <div class="card-meta"><span>${escapeHtml(task.id)}${task.type ? " · " + escapeHtml(task.type) : ""}</span>${statusPill(task.group, task.status)}</div>
+    </div>`;
+  }
+
+  function docCard(doc) {
+    return `<div class="card clickable" tabindex="0" role="button" data-doc-path="${escapeHtml(doc.path)}">
+      <div class="card-title">${escapeHtml(doc.title)}</div>
+      <div class="card-meta"><span>${escapeHtml(doc.kind.toUpperCase())} · ${escapeHtml(doc.id)} · <code>${escapeHtml(doc.path)}</code></span>${statusPill("review", doc.status)}</div>
+    </div>`;
+  }
+
+  function boardColumn(title, items, emptyText, renderCard) {
+    const count = `<span class="count">(${items.length})</span>`;
+    const body = items.length
+      ? items.map(renderCard).join("")
+      : `<div class="empty-note">${escapeHtml(emptyText)}</div>`;
+    return `<div class="board-col"><h3>${title} ${count}</h3>${body}</div>`;
+  }
+
+  async function loadBoard() {
+    const resultEl = document.getElementById("result-board");
+    const out = document.getElementById("board-out").value;
+    try {
+      if (out) localStorage.setItem(BOARD_OUT_KEY, out);
+    } catch (_) { /* 저장 불가 환경 */ }
+    resultEl.innerHTML = `<div class="empty-note">Loading…</div>`;
+    try {
+      const res = await fetch("/api/board?out=" + encodeURIComponent(out));
+      const body = await res.json();
+      if (body.ok === false) {
+        renderResult(resultEl, body);
+        return;
+      }
+      resultEl.innerHTML = `
+        <div class="board-cols">
+          ${boardColumn("✅ Done", body.tasks.done, "No completed tasks yet.", taskCard)}
+          ${boardColumn("🕐 To do", body.tasks.todo, "Nothing in the backlog.", taskCard)}
+          ${boardColumn("🔍 In review / QA", body.tasks.review, "Nothing waiting on review.", taskCard)}
+        </div>
+        <div class="board-col" style="margin-top: 18px;">
+          <h3>📄 Docs needing review <span class="count">(${body.docs_needing_review.length})</span></h3>
+          ${body.docs_needing_review.length
+            ? body.docs_needing_review.map(docCard).join("")
+            : `<div class="empty-note">No Draft/Proposed PRD, Architecture, or ADR docs.</div>`}
+        </div>`;
+    } catch (err) {
+      renderResult(resultEl, { ok: false, error: String(err) });
+    }
+  }
+
+  // ===== 문서 상세 보기 =====
+  // CDN 없이 동작해야 하므로 company-os 문서에 쓰이는 Markdown 문법만 지원하는 경량 렌더러
+
+  function safeHref(href) {
+    return /^(https?:|mailto:|#|\.{0,2}\/|[\w-])/i.test(href) && !/^\s*javascript:/i.test(href) ? href : "#";
+  }
+
+  function renderInline(text) {
+    const codes = [];
+    let out = escapeHtml(text).replace(/`([^`]+)`/g, (_, c) => {
+      codes.push(c);
+      return `\u0000${codes.length - 1}\u0000`;
+    });
+    out = out
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
+        const url = safeHref(href.replace(/&amp;/g, "&"));
+        const external = /^https?:/i.test(url);
+        return `<a href="${escapeHtml(url)}" data-md-link="${escapeHtml(url)}"${external ? ' target="_blank" rel="noopener"' : ""}>${label}</a>`;
+      })
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/~~([^~]+)~~/g, "<del>$1</del>")
+      .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, "$1<em>$2</em>");
+    return out.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+  }
+
+  function splitRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+  }
+
+  function renderMarkdown(md) {
+    const lines = md.replace(/\r\n?/g, "\n").split("\n");
+    const html = [];
+    let i = 0;
+    let paragraph = [];
+    const flush = () => {
+      if (paragraph.length) html.push(`<p>${renderInline(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const fence = line.match(/^\s*```(\S*)/);
+      if (fence) {
+        flush();
+        const code = [];
+        i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++]);
+        i++;
+        html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+        continue;
+      }
+      const heading = line.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) {
+        flush();
+        html.push(`<h${heading[1].length}>${renderInline(heading[2])}</h${heading[1].length}>`);
+        i++;
+        continue;
+      }
+      if (/^\s*(---|\*\*\*)\s*$/.test(line)) {
+        flush();
+        html.push("<hr>");
+        i++;
+        continue;
+      }
+      if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+        flush();
+        const header = splitRow(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(splitRow(lines[i++]));
+        html.push(`<div class="table-wrap"><table><thead><tr>${header.map(c => `<th>${renderInline(c)}</th>`).join("")}</tr></thead>`
+          + `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${renderInline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+        continue;
+      }
+      if (/^\s*>/.test(line)) {
+        flush();
+        const quote = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
+        html.push(`<blockquote>${renderMarkdown(quote.join("\n"))}</blockquote>`);
+        continue;
+      }
+      if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
+        flush();
+        i = renderList(lines, i, html);
+        continue;
+      }
+      if (line.trim() === "") {
+        flush();
+        i++;
+        continue;
+      }
+      paragraph.push(line.trim());
+      i++;
+    }
+    flush();
+    return html.join("\n");
+  }
+
+  function renderList(lines, start, html) {
+    const indentOf = l => l.match(/^\s*/)[0].replace(/\t/g, "  ").length;
+    const baseIndent = indentOf(lines[start]);
+    const ordered = /^\s*\d+\./.test(lines[start]);
+    const items = [];
+    let i = start;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.trim() === "") {
+        // 빈 줄 뒤에 같은 들여쓰기의 항목이 이어지면 같은 목록
+        if (i + 1 < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i + 1]) && indentOf(lines[i + 1]) >= baseIndent) { i++; continue; }
+        break;
+      }
+      const indent = indentOf(line);
+      const item = line.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
+      if (item && indent === baseIndent) {
+        items.push({ text: item[2], children: [] });
+        i++;
+      } else if (indent > baseIndent && items.length) {
+        if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
+          const nested = [];
+          i = renderList(lines, i, nested);
+          items[items.length - 1].children.push(nested.join(""));
+        } else {
+          items[items.length - 1].text += " " + line.trim();
+          i++;
+        }
+      } else {
+        break;
+      }
+    }
+    const tag = ordered ? "ol" : "ul";
+    html.push(`<${tag}>${items.map(it => {
+      const task = it.text.match(/^\[( |x|X)\]\s+(.*)$/);
+      const body = task
+        ? `<input type="checkbox" disabled${task[1] !== " " ? " checked" : ""}>${renderInline(task[2])}`
+        : renderInline(it.text);
+      return `<li${task ? ' class="task"' : ""}>${body}${it.children.join("")}</li>`;
+    }).join("")}</${tag}>`);
+    return i;
+  }
+
+  const docView = {
+    overlay: document.getElementById("doc-overlay"),
+    drawer: document.getElementById("doc-drawer"),
+    title: document.getElementById("doc-title"),
+    meta: document.getElementById("doc-meta"),
+    body: document.getElementById("doc-body"),
+    back: document.getElementById("doc-back"),
+    history: [],
+    current: null,
+  };
+
+  function resolveDocLink(fromPath, href) {
+    // 문서 안 상대 링크(../memory/decision-memory/ADR-0002.md)를 인스턴스 기준 경로로
+    const target = href.split("#")[0];
+    const parts = fromPath.split("/").slice(0, -1);
+    for (const seg of target.split("/")) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") parts.pop();
+      else parts.push(seg);
+    }
+    return parts.join("/");
+  }
+
+  async function openDoc(path, { pushHistory = true } = {}) {
+    if (pushHistory && docView.current && docView.current !== path) docView.history.push(docView.current);
+    docView.current = path;
+    docView.back.disabled = docView.history.length === 0;
+    docView.overlay.classList.remove("hidden");
+    docView.drawer.classList.remove("hidden");
+    docView.title.textContent = "Loading…";
+    docView.meta.textContent = path;
+    docView.body.innerHTML = "";
+    const out = document.getElementById("board-out").value;
+    try {
+      const res = await fetch(`/api/doc?out=${encodeURIComponent(out)}&path=${encodeURIComponent(path)}`);
+      const body = await res.json();
+      if (docView.current !== path) return; // 응답 도착 전에 다른 문서로 이동함
+      if (body.ok === false) {
+        docView.title.textContent = "문서를 열 수 없습니다";
+        docView.body.innerHTML = `<div class="result err">${escapeHtml(body.error)}</div>`;
+        return;
+      }
+      const f = body.fields || {};
+      const id = f["Task ID"] || f["Doc ID"] || f["PRD ID"] || "";
+      docView.title.textContent = body.title;
+      docView.meta.innerHTML = [id, f["Status"] ? `Status: ${f["Status"]}` : "", f["Assignee Role"] || "", `<code>${escapeHtml(body.path)}</code>`]
+        .filter(Boolean).map(x => x.startsWith("<code>") ? x : escapeHtml(x)).join(" · ");
+      docView.body.innerHTML = renderMarkdown(body.markdown);
+      docView.body.scrollTop = 0;
+    } catch (err) {
+      docView.title.textContent = "문서를 열 수 없습니다";
+      docView.body.innerHTML = `<div class="result err">${escapeHtml(String(err))}</div>`;
+    }
+  }
+
+  function closeDoc() {
+    docView.overlay.classList.add("hidden");
+    docView.drawer.classList.add("hidden");
+    docView.history = [];
+    docView.current = null;
+  }
+
+  document.getElementById("doc-close").addEventListener("click", closeDoc);
+  docView.overlay.addEventListener("click", closeDoc);
+  docView.back.addEventListener("click", () => {
+    const prev = docView.history.pop();
+    if (prev) openDoc(prev, { pushHistory: false });
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !docView.drawer.classList.contains("hidden")) closeDoc();
+  });
+  docView.body.addEventListener("click", event => {
+    const link = event.target.closest("a[data-md-link]");
+    if (!link) return;
+    const href = link.dataset.mdLink;
+    if (/^https?:/i.test(href) || href.startsWith("#")) return; // 외부 링크는 새 탭, 앵커는 그대로
+    event.preventDefault();
+    if (/\.md(#.*)?$/i.test(href)) openDoc(resolveDocLink(docView.current, href));
+  });
+  document.getElementById("result-board").addEventListener("click", event => {
+    const card = event.target.closest("[data-doc-path]");
+    if (card) openDoc(card.dataset.docPath);
+  });
+  document.getElementById("result-board").addEventListener("keydown", event => {
+    const card = event.target.closest("[data-doc-path]");
+    if (card && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      openDoc(card.dataset.docPath);
+    }
+  });
+
+  document.getElementById("board-refresh").addEventListener("click", loadBoard);
+  document.getElementById("board-out").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadBoard();
+  });
 </script>
 </body>
 </html>

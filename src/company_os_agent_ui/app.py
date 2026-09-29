@@ -37,7 +37,7 @@ from company_os_cli.scaffold import (
     upgrade,
 )
 
-from . import pilot
+from . import board, pilot
 
 STATIC_PACKAGE = "company_os_agent_ui"
 STATIC_RESOURCE = "static/index.html"
@@ -125,6 +125,31 @@ def create_app() -> FastAPI:
                 "leftover": result.leftover,
             }
         )
+
+    @app.get("/api/board")
+    def api_board(out: str = "") -> JSONResponse:
+        instance_dir = _resolve_out(out)
+        if not (instance_dir / MANIFEST_FILENAME).is_file():
+            return _error(
+                f"{instance_dir} is not a company-os instance "
+                "(no manifest — run `company-os init` first).",
+                400,
+            )
+        return JSONResponse({"ok": True, "instance": str(instance_dir), **board.build_board(instance_dir)})
+
+    @app.get("/api/doc")
+    def api_doc(out: str = "", path: str = "") -> JSONResponse:
+        instance_dir = _resolve_out(out)
+        if not (instance_dir / MANIFEST_FILENAME).is_file():
+            return _error(
+                f"{instance_dir} is not a company-os instance "
+                "(no manifest — run `company-os init` first).",
+                400,
+            )
+        try:
+            return JSONResponse({"ok": True, **board.read_doc(instance_dir, path)})
+        except board.DocReadError as exc:
+            return _error(str(exc), exc.status_code)
 
     @app.post("/api/upgrade")
     def api_upgrade(payload: UpgradeRequest) -> JSONResponse:

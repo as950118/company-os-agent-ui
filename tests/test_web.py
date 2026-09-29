@@ -131,6 +131,100 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(types[-1], "run_completed")
         self.assertIn("stage_output", types)
 
+    def test_api_board_missing_instance_errors(self) -> None:
+        res = self.client.get("/api/board", params={"out": str(self._tmp_dir() / "does-not-exist")})
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()["ok"])
+
+    def test_api_doc_returns_task_markdown_and_fields(self) -> None:
+        out_dir = self._tmp_dir()
+        scaffold(name="Acme", product="Acme App", out=out_dir, slug="acme-app")
+        (out_dir / "tasks" / "TASK-0001-favorites.md").write_text(
+            "# Task: Add favorites\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Task ID | TASK-0001 |\n"
+            "| Status | In Review |\n\n"
+            "## Summary\n\nLet users star items.\n",
+            encoding="utf-8",
+        )
+
+        res = self.client.get("/api/doc", params={"out": str(out_dir), "path": "tasks/TASK-0001-favorites.md"})
+        self.assertEqual(res.status_code, 200, msg=res.text)
+        body = res.json()
+        self.assertEqual(body["title"], "Add favorites")
+        self.assertEqual(body["fields"]["Status"], "In Review")
+        self.assertIn("Let users star items.", body["markdown"])
+        self.assertEqual(body["path"], "tasks/TASK-0001-favorites.md")
+
+    def test_api_doc_rejects_paths_outside_instance_and_non_markdown(self) -> None:
+        out_dir = self._tmp_dir()
+        scaffold(name="Acme", product="Acme App", out=out_dir, slug="acme-app")
+        secret = out_dir.parent / "secret.md"
+        secret.write_text("# secret\n", encoding="utf-8")
+        (out_dir / "tasks" / "link.md").symlink_to(secret)
+
+        cases = {
+            "../secret.md": 400,
+            str(secret): 400,
+            "tasks/link.md": 400,          # symlink pointing outside
+            ".company-os-manifest.json": 400,
+            "tasks/missing.md": 404,
+            "": 400,
+        }
+        for path, expected in cases.items():
+            res = self.client.get("/api/doc", params={"out": str(out_dir), "path": path})
+            self.assertEqual(res.status_code, expected, msg=f"{path}: {res.text}")
+            self.assertFalse(res.json()["ok"])
+
+    def test_api_doc_missing_instance_errors(self) -> None:
+        res = self.client.get("/api/doc", params={"out": str(self._tmp_dir() / "nope"), "path": "tasks/a.md"})
+        self.assertEqual(res.status_code, 400)
+
+    def test_api_board_reports_task_and_doc_status(self) -> None:
+        out_dir = self._tmp_dir()
+        scaffold(name="Acme", product="Acme App", out=out_dir, slug="acme-app")
+
+        (out_dir / "tasks" / "TASK-0001-favorites.md").write_text(
+            "# Task: Add favorites\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Task ID | TASK-0001 |\n"
+            "| Type | Feature |\n"
+            "| Status | In Review |\n",
+            encoding="utf-8",
+        )
+        (out_dir / "tasks" / "TASK-0002-cleanup.md").write_text(
+            "# Task: Cleanup\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Task ID | TASK-0002 |\n"
+            "| Status | Done |\n",
+            encoding="utf-8",
+        )
+        prd_dir = out_dir / "projects" / "acme-app" / "prd"
+        prd_dir.mkdir(parents=True, exist_ok=True)
+        (prd_dir / "PRD-0001-favorites.md").write_text(
+            "# PRD: Favorites\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| PRD ID | PRD-0001 |\n"
+            "| Status | Draft |\n",
+            encoding="utf-8",
+        )
+
+        res = self.client.get("/api/board", params={"out": str(out_dir)})
+        self.assertEqual(res.status_code, 200, msg=res.text)
+        body = res.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["tasks"]["done"]), 1)
+        self.assertEqual(body["tasks"]["done"][0]["id"], "TASK-0002")
+        self.assertEqual(len(body["tasks"]["review"]), 1)
+        self.assertEqual(body["tasks"]["review"][0]["id"], "TASK-0001")
+        self.assertEqual(body["tasks"]["todo"], [])
+        self.assertEqual(len(body["docs_needing_review"]), 1)
+        self.assertEqual(body["docs_needing_review"][0]["id"], "PRD-0001")
+
     def test_ws_run_missing_instance_errors(self) -> None:
         with self.client.websocket_connect("/ws/run") as ws:
             ws.send_json(
